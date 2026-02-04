@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Runner Analyzer</title>
+</head>
+<body>
+  <h2>Runner Performance Analyzer</h2>
+  <button onclick="runAnalyze()">Analyze</button>
+  <pre id="output">Click Analyze</pre>
+
+<script>
+async function runAnalyze(){
+  document.getElementById("output").innerText = "Loading...";
+  const res = await fetch("/analyze");
+  const data = await res.json();
+  document.getElementById("output").innerText =
+    JSON.stringify(data, null, 2);
+}
+</script>
+</body>
+</html>
