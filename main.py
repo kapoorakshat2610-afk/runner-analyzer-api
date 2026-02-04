@@ -83,78 +83,75 @@ def webui():
         return f.read()
 @app.post("/analyze_video")
 async def analyze_video(file: UploadFile = File(...)):
-    # Save uploaded video to a temp file
-    suffix = os.path.splitext(file.filename)[-1].lower()
-    if suffix not in [".mp4", ".mov", ".avi", ".mkv"]:
-        return {"error": "Unsupported video format. Upload mp4/mov/avi/mkv"}
+    try:
+        import os, tempfile
+        import cv2
+        import numpy as np
+        import mediapipe as mp
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(await file.read())
-        video_path = tmp.name
+        suffix = os.path.splitext(file.filename)[-1].lower()
+        if suffix not in [".mp4", ".mov", ".avi", ".mkv"]:
+            return {"error": "Unsupported video format"}
 
-    mp_pose = mp.solutions.pose
-    pose = mp_pose.Pose(static_image_mode=False, min_detection_confidence=0.5, min_tracking_confidence=0.5)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(await file.read())
+            video_path = tmp.name
 
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
+        mp_pose = mp.solutions.pose
+        pose = mp_pose.Pose(static_image_mode=False)
+
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            return {"error": "Could not open video file"}
+
+        knee_angles = []
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = pose.process(rgb)
+
+            if not results.pose_landmarks:
+                continue
+
+            lm = results.pose_landmarks.landmark
+
+            hip = (lm[mp_pose.PoseLandmark.RIGHT_HIP].x,
+                   lm[mp_pose.PoseLandmark.RIGHT_HIP].y)
+            knee = (lm[mp_pose.PoseLandmark.RIGHT_KNEE].x,
+                    lm[mp_pose.PoseLandmark.RIGHT_KNEE].y)
+            ankle = (lm[mp_pose.PoseLandmark.RIGHT_ANKLE].x,
+                     lm[mp_pose.PoseLandmark.RIGHT_ANKLE].y)
+
+            angle = calc_angle(hip, knee, ankle)
+            knee_angles.append(angle)
+
+            if len(knee_angles) > 300:
+                break
+
+        cap.release()
+        pose.close()
         os.remove(video_path)
-        return {"error": "Could not open video file"}
 
-    knee_angles = []
-    processed_frames = 0
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        if len(knee_angles) < 5:
+            return {"error": "Not enough pose frames detected"}
 
-    # ✅ Speed control: process every Nth frame (set 2 or 3 for faster)
-    FRAME_SKIP = 2
+        avg_knee = float(np.mean(knee_angles))
+        predicted = model.predict([[avg_knee]])[0]
 
-    frame_index = 0
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+        return {
+            "average_knee_angle": round(avg_knee, 2),
+            "performance_level": predicted,
+            "frames_used": len(knee_angles),
+            "ml_used": True,
+            "source": "uploaded_video"
+        }
 
-        frame_index += 1
-        if frame_index % FRAME_SKIP != 0:
-            continue
-
-        processed_frames += 1
-
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = pose.process(rgb)
-
-        if not results.pose_landmarks:
-            continue
-
-        lm = results.pose_landmarks.landmark
-
-        # Right leg points
-        hip = (lm[mp_pose.PoseLandmark.RIGHT_HIP].x, lm[mp_pose.PoseLandmark.RIGHT_HIP].y)
-        knee = (lm[mp_pose.PoseLandmark.RIGHT_KNEE].x, lm[mp_pose.PoseLandmark.RIGHT_KNEE].y)
-        ankle = (lm[mp_pose.PoseLandmark.RIGHT_ANKLE].x, lm[mp_pose.PoseLandmark.RIGHT_ANKLE].y)
-
-        angle = calc_angle(hip, knee, ankle)
-        knee_angles.append(angle)
-
-        # Safety stop for very long videos
-        if processed_frames >= 600:   # ~600 processed frames cap
-            break
-
-    cap.release()
-    pose.close()
-    os.remove(video_path)
-
-    if len(knee_angles) < 5:
-        return {"error": "Not enough pose frames detected. Try clearer video / full body visible."}
-
-    avg_knee = float(np.mean(knee_angles))
-    predicted_level = model.predict([[avg_knee]])[0]
-
-    return {
-        "average_knee_angle": round(avg_knee, 2),
-        "performance_level": predicted_level,
-        "frames_used": len(knee_angles),
-        "total_frames_in_video": total_frames,
-        "ml_used": True,
-        "source": "uploaded_video"
-    }
-
+    except Exception as e:
+        return {
+            "error": "Internal processing error",
+            "details": str(e)
+        }
