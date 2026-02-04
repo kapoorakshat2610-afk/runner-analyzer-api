@@ -57,6 +57,12 @@ async def analyze_csv(file: UploadFile = File(...)):
         "ml_used": True,
         "source": "uploaded_csv"
     }
+import os
+from fastapi.responses import HTMLResponse
+
 @app.get("/webui", response_class=HTMLResponse)
 def webui():
-    return open("webui.html").read()
+    path = os.path.join(os.path.dirname(__file__), "webui.html")
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
