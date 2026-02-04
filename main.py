@@ -1,3 +1,5 @@
+from pydantic import BaseModel
+
 import os, tempfile
 import numpy as np
 import cv2
@@ -9,6 +11,9 @@ from fastapi.responses import HTMLResponse
 import pandas as pd
 import joblib
 import io
+
+class Features(BaseModel):
+    avg_knee_angle: float
 
 def calc_angle(a, b, c):
     a = np.array(a)  # hip
@@ -155,3 +160,13 @@ async def analyze_video(file: UploadFile = File(...)):
             "error": "Internal processing error",
             "details": str(e)
         }
+@app.post("/predict_features")
+def predict_features(features: Features):
+    avg_knee_angle = features.avg_knee_angle
+    predicted_level = model.predict([[avg_knee_angle]])[0]
+    return {
+        "average_knee_angle": round(avg_knee_angle, 2),
+        "performance_level": predicted_level,
+        "ml_used": True,
+        "source": "features_json"
+    }
