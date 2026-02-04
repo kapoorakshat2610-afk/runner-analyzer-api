@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Runner Analyzer UI</title>
+  <style>
+    body{font-family:Arial;background:#f2f2f2;padding:30px;}
+    .card{background:#fff;max-width:520px;margin:auto;padding:20px;border-radius:12px;}
+    input,button{width:100%;padding:12px;margin-top:10px;border-radius:10px;border:1px solid #ccc;}
+    button{background:#2563eb;color:white;border:none;cursor:pointer;font-size:16px;}
+    pre{background:#111;color:#0f0;padding:12px;border-radius:10px;overflow:auto;}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>🏃 Runner Analyzer</h2>
+
+    <input type="file" id="fileInput" accept=".csv" />
+    <button onclick="uploadAndAnalyze()">Analyze CSV</button>
+
+    <h3>Result</h3>
+    <pre id="out">Upload a CSV and click Analyze…</pre>
+  </div>
+
+<script>
+async function uploadAndAnalyze(){
+  const out = document.getElementById("out");
+  const fileInput = document.getElementById("fileInput");
+
+  if(!fileInput.files.length){
+    out.textContent = "❌ Please choose a CSV file first.";
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("file", fileInput.files[0]);
+
+  out.textContent = "⏳ Uploading & analyzing...";
+
+  try{
+    const res = await fetch("/analyze_csv", {
+      method: "POST",
+      body: formData
+    });
+
+    const data = await res.json();
+    out.textContent = JSON.stringify(data, null, 2);
+  }catch(err){
+    out.textContent = "❌ Error: " + err;
+  }
+}
+</script>
+</body>
+</html>
