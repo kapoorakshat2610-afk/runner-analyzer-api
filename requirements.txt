@@ -5,7 +5,10 @@ python-multipart
 scikit-learn
 joblib
 opencv-python-headless
-mediapipe
-numpy
+mediapipe==0.10.14
+protobuf<5
+numpy<2
+
+
 
 
