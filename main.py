@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse
 import pandas as pd
 import joblib
 import io
-
+import mediapipe as mp
 class Features(BaseModel):
     avg_knee_angle: float
 
@@ -29,7 +29,14 @@ def calc_angle(a, b, c):
 app = FastAPI(title="Sports Analysis API")
 model = joblib.load("runner_model.pkl")
 
-
+@app.get("/debug_mp")
+def debug_mp():
+    return {
+        "mp_file": getattr(mp, "__file__", None),
+        "mp_version": getattr(mp, "__version__", None),
+        "has_solutions": hasattr(mp, "solutions"),
+        "dir_sample": [x for x in dir(mp) if "solution" in x.lower()][:30],
+    }
 @app.get("/")
 def home():
     return {"message": "Backend running successfully"}
