@@ -14,9 +14,8 @@ from fastapi.middleware.cors import CORSMiddleware
 # ----------------------------
 # FastAPI setup
 # ----------------------------
-app = FastAPI(title="Runner Analyzer API", version="1.0.0")
+app = FastAPI(title="Runner Analyzer API", version="1.1.0")
 
-# Allow your Flutter app / browser access (safe default for hackathon)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -37,7 +36,7 @@ def health():
 
 
 # ----------------------------
-# Report builder (Option 1)
+# Report builder (stable scoring)
 # ----------------------------
 def build_report(
     average_knee_angle: float,
@@ -47,12 +46,20 @@ def build_report(
     keypoints_confidence: Optional[float] = None,
 ):
     IDEAL = 165.0
-    diff = abs(IDEAL - float(average_knee_angle))
+    avg = float(average_knee_angle)
+    diff = abs(IDEAL - avg)
 
+    # Base score
     score = 100.0 - (diff * 2.0)
+
+    # If confidence is low, avoid clamping to 0 from noisy angles
+    if keypoints_confidence is not None and float(keypoints_confidence) < 0.35:
+        # Set a neutral score and provide guidance
+        score = 50.0
+
     score = max(0.0, min(100.0, score))
 
-    # Explainable buckets (judge-friendly)
+    # Level based on score
     if score >= 85:
         level = "advanced"
     elif score >= 60:
@@ -63,23 +70,29 @@ def build_report(
     mistakes = []
     suggestions = []
 
-    if diff <= 2:
-        mistakes.append("No major mistakes detected.")
-        suggestions.append("Maintain this running form and consistency.")
-        suggestions.append("Keep stride smooth and controlled.")
-    elif diff <= 6:
-        mistakes.append("Minor knee alignment deviation from ideal.")
-        suggestions.append("Aim closer to 165° knee angle during stride.")
-        suggestions.append("Focus on steady stride mechanics and knee drive.")
+    if keypoints_confidence is not None and float(keypoints_confidence) < 0.35:
+        mistakes.append("Low pose detection confidence in video.")
+        suggestions.append("Record in good lighting with full body visible.")
+        suggestions.append("Use side-view angle and avoid camera shake.")
+        suggestions.append("Try again for a more accurate score.")
     else:
-        mistakes.append("Knee angle deviation is high compared to ideal.")
-        suggestions.append("Practice knee-drive drills and controlled landing technique.")
-        suggestions.append("Record from side view with good lighting for better accuracy.")
-        suggestions.append("Reduce overstriding and keep cadence steady.")
+        if diff <= 2:
+            mistakes.append("No major mistakes detected.")
+            suggestions.append("Maintain this running form and consistency.")
+            suggestions.append("Keep stride smooth and controlled.")
+        elif diff <= 6:
+            mistakes.append("Minor knee alignment deviation from ideal.")
+            suggestions.append("Aim closer to 165° knee angle during stride.")
+            suggestions.append("Focus on steady stride mechanics and knee drive.")
+        else:
+            mistakes.append("Knee angle deviation is high compared to ideal.")
+            suggestions.append("Practice knee-drive drills and controlled landing technique.")
+            suggestions.append("Record from side view with good lighting for better accuracy.")
+            suggestions.append("Reduce overstriding and keep cadence steady.")
 
     return {
         "overall_score": round(score, 1),
-        "average_knee_angle": round(float(average_knee_angle), 1),
+        "average_knee_angle": round(avg, 1),
         "difference_from_ideal": round(diff, 1),
         "ideal_knee_angle": IDEAL,
         "performance_level": level,
@@ -96,9 +109,7 @@ def build_report(
 # Pose + Knee Angle utilities
 # ----------------------------
 def _angle_3pts(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
-    """
-    Angle ABC in degrees where points are 2D/3D.
-    """
+    """Angle ABC in degrees."""
     ba = a - b
     bc = c - b
     denom = (np.linalg.norm(ba) * np.linalg.norm(bc))
@@ -128,8 +139,6 @@ def analyze_video_knee_angle(video_path: str) -> dict:
         raise RuntimeError("Cannot open video")
 
     mp_pose = mp.solutions.pose
-
-    # Use a moderate model complexity for decent accuracy
     pose = mp_pose.Pose(
         static_image_mode=False,
         model_complexity=1,
@@ -139,11 +148,11 @@ def analyze_video_knee_angle(video_path: str) -> dict:
         min_tracking_confidence=0.5,
     )
 
-    # Sample every N frames to keep it fast on Render
+    # Sample every N frames to keep Render fast
     frame_step = 5
 
-    angles = []
-    confs = []
+    angles: list[float] = []
+    confs: list[float] = []
     frames_used = 0
 
     frame_idx = 0
@@ -156,7 +165,6 @@ def analyze_video_knee_angle(video_path: str) -> dict:
         if frame_idx % frame_step != 0:
             continue
 
-        # MediaPipe expects RGB
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = pose.process(rgb)
 
@@ -165,29 +173,24 @@ def analyze_video_knee_angle(video_path: str) -> dict:
 
         lm = results.pose_landmarks.landmark
 
-        # Landmarks for knee angle:
-        # Left: hip(23), knee(25), ankle(27)
-        # Right: hip(24), knee(26), ankle(28)
-        # Use x,y (image-normalized coords) + z (optional)
         def pt(i: int) -> np.ndarray:
             return np.array([lm[i].x, lm[i].y, lm[i].z], dtype=np.float32)
 
+        # Left: hip(23), knee(25), ankle(27)
+        # Right: hip(24), knee(26), ankle(28)
         left = _angle_3pts(pt(23), pt(25), pt(27))
         right = _angle_3pts(pt(24), pt(26), pt(28))
 
-        # Use average of valid sides
         vals = []
         if not math.isnan(left):
             vals.append(left)
         if not math.isnan(right):
             vals.append(right)
-
         if not vals:
             continue
 
         angles.append(float(np.mean(vals)))
 
-        # confidence proxy: average visibility of hips/knees/ankles used
         vis = [
             lm[23].visibility, lm[25].visibility, lm[27].visibility,
             lm[24].visibility, lm[26].visibility, lm[28].visibility
@@ -202,8 +205,14 @@ def analyze_video_knee_angle(video_path: str) -> dict:
     if frames_used == 0 or len(angles) == 0:
         raise RuntimeError("No valid pose frames detected. Try a clearer side-view video.")
 
+    avg = float(np.mean(angles))
+
+    # ✅ Guard against garbage angles that can cause score=0
+    if not (20.0 <= avg <= 200.0):
+        raise RuntimeError(f"Invalid knee angle computed: {avg}. Try clearer side-view video.")
+
     return {
-        "avg_knee_angle": float(np.mean(angles)),
+        "avg_knee_angle": avg,
         "frames_analyzed": int(frames_used),
         "confidence": float(np.mean(confs)) if confs else None,
     }
@@ -214,16 +223,13 @@ def analyze_video_knee_angle(video_path: str) -> dict:
 # ----------------------------
 @app.post("/analyze_video")
 async def analyze_video(file: UploadFile = File(...)):
-    # Validate file
     if not file:
         raise HTTPException(status_code=400, detail="No file uploaded")
     if not file.filename:
         raise HTTPException(status_code=400, detail="File name missing")
 
-    # Save to a temp file
     suffix = os.path.splitext(file.filename)[-1].lower()
     if suffix not in [".mp4", ".mov", ".avi", ".mkv", ".webm"]:
-        # still allow, but warn
         suffix = ".mp4"
 
     try:
@@ -234,9 +240,9 @@ async def analyze_video(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save upload: {e}")
 
-    # Analyze
     try:
         out = analyze_video_knee_angle(temp_path)
+
         report = build_report(
             average_knee_angle=out["avg_knee_angle"],
             ml_used=True,
@@ -245,8 +251,10 @@ async def analyze_video(file: UploadFile = File(...)):
             keypoints_confidence=out.get("confidence"),
         )
         return report
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
+
     finally:
         try:
             os.remove(temp_path)
