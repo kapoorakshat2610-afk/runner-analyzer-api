@@ -38,7 +38,7 @@ def health():
 # ----------------------------
 # Report builder (stable scoring)
 # ----------------------------
-}
+
 def build_report(
     average_knee_angle: float,
     ml_used: bool = True,
