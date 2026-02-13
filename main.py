@@ -38,6 +38,7 @@ def health():
 # ----------------------------
 # Report builder (stable scoring)
 # ----------------------------
+}
 def build_report(
     average_knee_angle: float,
     ml_used: bool = True,
@@ -49,14 +50,22 @@ def build_report(
     avg = float(average_knee_angle)
     diff = abs(IDEAL - avg)
 
-    # Base score
-    score = 100.0 - (diff * 2.0)
+    # ✅ If confidence is missing, treat as low confidence (common!)
+    conf = float(keypoints_confidence) if keypoints_confidence is not None else 0.0
 
-    # If confidence is low, avoid clamping to 0 from noisy angles
-    if keypoints_confidence is not None and float(keypoints_confidence) < 0.35:
-        # Set a neutral score and provide guidance
-        score = 50.0
+    # ✅ Cap diff for scoring so noisy videos don't drop score to 0
+    # (you can tune this cap: 25..40)
+    diff_for_score = min(diff, 30.0)
 
+    # Base score from capped diff
+    score = 100.0 - (diff_for_score * 2.0)
+
+    # ✅ Low-confidence fallback: keep score reasonable instead of 0
+    if conf < 0.35:
+      # If detection is weak, we still return a neutral score and guidance
+      score = max(score, 55.0)
+
+    # Clamp final score
     score = max(0.0, min(100.0, score))
 
     # Level based on score
@@ -70,7 +79,7 @@ def build_report(
     mistakes = []
     suggestions = []
 
-    if keypoints_confidence is not None and float(keypoints_confidence) < 0.35:
+    if conf < 0.35:
         mistakes.append("Low pose detection confidence in video.")
         suggestions.append("Record in good lighting with full body visible.")
         suggestions.append("Use side-view angle and avoid camera shake.")
@@ -101,7 +110,7 @@ def build_report(
         "ml_used": bool(ml_used),
         "source": source,
         "frames_analyzed": frames_analyzed,
-        "keypoints_confidence": round(float(keypoints_confidence), 3) if keypoints_confidence is not None else None,
+        "keypoints_confidence": round(conf, 3),
     }
 
 
