@@ -1,0 +1,41 @@
+name: video_app
+description: AI Sports Talent Assessment App
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.2.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.6
+
+  # 🔹 API + Graph
+  http: ^1.2.2
+  fl_chart: ^0.68.0
+
+  # 🔹 File upload
+  file_picker: ^10.3.10
+
+  # 🔹 Local storage
+  shared_preferences: ^2.5.2
+
+  # 🔹 Share report
+  share_plus: ^12.0.1
+
+  # 🔹 PDF generation
+  pdf: ^3.11.3
+  printing: ^5.14.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
