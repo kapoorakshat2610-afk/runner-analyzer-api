@@ -9,6 +9,9 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pathlib import Path
+from datetime import datetime
+import json
 
 
 # ----------------------------
@@ -23,7 +26,34 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+DATA_FILE = Path("data/sessions.json")
 
+def load_sessions():
+    if not DATA_FILE.exists():
+        return []
+    return json.loads(DATA_FILE.read_text(encoding="utf-8"))
+
+def save_sessions(sessions):
+    DATA_FILE.parent.mkdir(exist_ok=True)
+    DATA_FILE.write_text(
+        json.dumps(sessions, indent=2),
+        encoding="utf-8"
+    )
+
+@app.get("/sessions")
+def get_sessions(player_id: str = "P1"):
+    sessions = load_sessions()
+
+    player_sessions = [
+        s for s in sessions
+        if s.get("player_id") == player_id
+    ]
+
+    player_sessions.sort(
+        key=lambda x: x.get("date", "")
+    )
+
+    return player_sessions
 
 @app.get("/")
 def root():
@@ -253,13 +283,30 @@ async def analyze_video(file: UploadFile = File(...)):
         out = analyze_video_knee_angle(temp_path)
 
         report = build_report(
-            average_knee_angle=out["avg_knee_angle"],
-            ml_used=True,
-            source="uploaded_video",
-            frames_analyzed=out["frames_analyzed"],
-            keypoints_confidence=out.get("confidence"),
-        )
-        return report
+    average_knee_angle=out["avg_knee_angle"],
+    ml_used=True,
+    source="uploaded_video",
+    frames_analyzed=out["frames_analyzed"],
+    keypoints_confidence=out.get("confidence"),
+)
+
+sessions = load_sessions()
+
+new_session = {
+    "session_id": f"S{len(sessions)+1}",
+    "player_id": "P1",
+    "date": datetime.now().isoformat(),
+    "metrics": {
+        "knee_angle": report["average_knee_angle"],
+        "overall_score": report["overall_score"],
+        "confidence": report["keypoints_confidence"]
+    }
+}
+
+sessions.append(new_session)
+save_sessions(sessions)
+
+return report
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
