@@ -283,30 +283,30 @@ async def analyze_video(file: UploadFile = File(...)):
         out = analyze_video_knee_angle(temp_path)
 
         report = build_report(
-    average_knee_angle=out["avg_knee_angle"],
-    ml_used=True,
-    source="uploaded_video",
-    frames_analyzed=out["frames_analyzed"],
-    keypoints_confidence=out.get("confidence"),
-)
+            average_knee_angle=out["avg_knee_angle"],
+            ml_used=True,
+            source="uploaded_video",
+            frames_analyzed=out["frames_analyzed"],
+            keypoints_confidence=out.get("confidence"),
+        )
 
-sessions = load_sessions()
+        sessions = load_sessions()
 
-new_session = {
-    "session_id": f"S{len(sessions)+1}",
-    "player_id": "P1",
-    "date": datetime.now().isoformat(),
-    "metrics": {
-        "knee_angle": report["average_knee_angle"],
-        "overall_score": report["overall_score"],
-        "confidence": report["keypoints_confidence"]
-    }
-}
+        new_session = {
+            "session_id": f"S{len(sessions)+1}",
+            "player_id": "P1",
+            "date": datetime.now().isoformat(),
+            "metrics": {
+                "knee_angle": report["average_knee_angle"],
+                "overall_score": report["overall_score"],
+                "confidence": report["keypoints_confidence"]
+            }
+        }
 
-sessions.append(new_session)
-save_sessions(sessions)
+        sessions.append(new_session)
+        save_sessions(sessions)
 
-return report
+        return report
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
