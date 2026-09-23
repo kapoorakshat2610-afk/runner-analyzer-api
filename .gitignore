@@ -1,0 +1,10 @@
+venv/
+legacy_test_env/
+__pycache__/
+*.pyc
+*.db
+test_videos/
+debug_*.py
+compare_*.py
+legacy_*.py
+knee_angles_training.csv
